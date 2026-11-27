@@ -64,17 +64,17 @@ def search(client, embedder, question, category, top_k=2):
 def rewrite_query(question, aliases):
     rewritten = question
     for alias, formal_name in aliases.items():
-        rewritten = todo("현재 문자열에서 alias를 formal_name으로 바꾸세요.")
+        rewritten = rewritten.replace(alias, formal_name)
     return rewritten
 
 
 def answer_question(question, rows, generate):
     if not rows:
         return {"answer": "확인할 문서가 없습니다.", "citations": [], "needs_human": True}
-    context = todo("각 검색 결과를 [chunk_id] 본문으로 묶고 빈 줄로 연결하세요.")
+    context = "\n\n".join(f"[{row['chunk_id']}] {row['text']}" for row in rows)
     reply = support.validate_shape(generate(question, context))
     allowed = {row["chunk_id"] for row in rows}
-    if todo("검색 결과에 없는 출처가 하나라도 있는지 검사하세요."):
+    if not set(reply["citations"]) <= allowed:
         raise ValueError("검색하지 않은 출처가 있습니다.")
     if reply["needs_human"] == bool(reply["citations"]):
         raise ValueError("답변에는 출처가 필요하며 담당자 확인에는 출처를 비웁니다.")
@@ -82,13 +82,26 @@ def answer_question(question, rows, generate):
 
 
 def make_golden():
-    return todo("답이 있는 사례와 자료가 없는 사례를 하나씩 작성하세요.")
+    return [
+        {"question_id": "mine-vpn-approval",
+         "question": "초록문 사용 승인은 어디에 요청하나요?",
+         "category": "access",
+         "reference_answer": "보안팀에 승인을 요청합니다.",
+         "relevant_document_ids": ["vpn"],
+         "required_terms": ["보안팀"]},
+        {"question_id": "mine-overseas-expense",
+         "question": "해외 지사 출장비는 어떻게 정산하나요?",
+         "category": "overseas",
+         "reference_answer": "해외 출장비 정산 절차를 다루는 현행 문서가 없어 담당자 확인이 필요합니다.",
+         "relevant_document_ids": [],
+         "required_terms": []},
+    ]
 
 
 def measure(case, rows, reply):
     expected = set(case["relevant_document_ids"])
     found = {row["document_id"] for row in rows}
-    recall = todo("필요한 문서 중 찾은 비율을 계산하세요. 필요한 문서가 없으면 None입니다.")
+    recall = len(expected & found) / len(expected) if expected else None
     answer_ok = (all(term in reply["answer"] for term in case["required_terms"])
                  and not reply["needs_human"]) if expected else reply["needs_human"]
     failure = "없음"
@@ -96,7 +109,12 @@ def measure(case, rows, reply):
         failure = "검색 누락"
     elif not answer_ok:
         failure = "답변 확인 필요" if expected else "보류 실패"
-    # 관측: 실제 evaluate 결과에서 개선, 악화 질문과 답변 본문을 확인해 기록합니다.
+    # 관측: 문서 Recall 0.667 -> 1.000, answer_check 0.750 -> 1.000이며 악화된 질문은 없습니다.
+    # mine-vpn-approval만 개선되었습니다. 변환 전에는 "초록문"이 door:0(초록색, 출입문)에 0.8225로 걸려
+    # vpn:0을 놓친 검색 누락이고, 답변 문제는 아닙니다. 모델은 틀린 문서로 답하지 않고 보류했습니다.
+    # 변환 후 vpn:0을 0.9197로 찾아 "보안팀"을 답했습니다. given-token은 전후 모두 token:0이지만
+    # 점수가 0.7925에서 0.9367로 올라 top_k=1에서의 여유가 늘어 변환을 적용할 이유가 됩니다.
+    # 한계: 단순 치환이라 "API 토큰를"처럼 조사가 어긋나고, 사전에 없는 은어는 그대로 누락됩니다.
     return {"document_recall": recall, "answer_check": bool(answer_ok), "failure": failure}
 
 
