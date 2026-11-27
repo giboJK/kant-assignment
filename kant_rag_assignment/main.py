@@ -1,6 +1,4 @@
 """KANT NEXT DevDesk RAG. 이 파일의 빈칸만 작성하세요."""
-import uuid
-
 from qdrant_client import models
 
 import support
@@ -8,10 +6,6 @@ import support
 
 def todo(message):
     raise NotImplementedError(message)
-
-
-# chunk_id용 UUID 이름공간. 같은 원문과 번호는 실행을 다시 해도 같은 ID가 나옵니다.
-CHUNK_NAMESPACE = uuid.UUID("6f1d4a2c-9b3e-4c57-8a10-2d7e5b4c9f08")
 
 
 # 필수 1. 문서를 저장하고 현행 자료만 검색하기
@@ -26,7 +20,7 @@ def prepare_chunks(documents):
                 continue
             seen.add(text)
             chunk = {
-                "chunk_id": str(uuid.uuid5(CHUNK_NAMESPACE, f"{document['document_id']}:{number}")),
+                "chunk_id": f"{document['document_id']}:{number}",
                 "document_id": document["document_id"],
                 "title": document["title"],
                 "category": document["category"],
@@ -37,8 +31,7 @@ def prepare_chunks(documents):
             chunks.append(chunk)
             number += 1
     # 이유: 제공 문단은 승인 절차처럼 한 문장이 한 조건이라 더 쪼개면 근거가 끊기므로 문단을 청크 단위로 둡니다.
-    # chunk_id가 UUID라 원문을 역산할 수 없으므로 document_id와 source를 함께 저장해야 출처를 추적할 수 있고,
-    # status와 category는 현행/분류 필터에 쓰이므로 청크마다 복사해 둡니다.
+    # status와 category는 현행/분류 필터, document_id와 source는 출처 추적, chunk_id는 인용 단위라 함께 보존합니다.
     return chunks
 
 
